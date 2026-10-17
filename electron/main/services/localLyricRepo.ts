@@ -4,7 +4,7 @@
  * 用户指定若干目录作为歌词仓库。按需递归扫描其中的 .ttml / .lrc / .lys / .ass / .srt，
  * 解析元信息建立索引：
  * - 文件名里的歌曲 ID（`歌曲ID.后缀名` 或 `任意前缀.歌曲ID.后缀名`）→ 候选文件
- * - TTML 的 AMLL `<amll:meta>` 头（ncmMusicId / qqMusicId）→ 候选文件
+ * - TTML 的 AMLL `<amll:meta>` 头（ncmMusicId / qqMusicId，可多个）→ 候选文件
  * - 标题（TTML 的 musicName、LRC / LyS 的 [ti:]）→ 同名候选
  * 命中时返回文件原文，交由渲染层按实际格式解析。
  *
@@ -19,7 +19,8 @@ import { store } from "@main/store";
 import { normalize } from "@main/apis/common/lyric/utils";
 import { buildFingerprint, getMatchedId } from "@main/database/lyricMatchCache";
 import { coreLog } from "@main/utils/logger";
-import { DEFAULT_LYRIC_FORMAT_ORDER, type LyricFormat } from "@shared/types/lyrics";
+import { DEFAULT_LYRIC_FORMAT_ORDER } from "@shared/types/lyrics";
+import type { LyricFormat } from "lyric-kit";
 import type { Track } from "@shared/types/player";
 
 /** 可识别的扩展名与其歌词格式 */
@@ -64,21 +65,26 @@ interface Building {
 let cache: IndexCache | null = null;
 let building: Building | null = null;
 
+interface TTMLMeta {
+  name?: string;
+  artist?: string;
+  ncmIds: string[];
+  qqIds: string[];
+}
+
 /** 从 TTML 文本头部提取 AMLL 元信息 */
-const extractTtmlMeta = (
-  text: string,
-): { name?: string; artist?: string; ncmId?: string; qqId?: string } => {
+const extractTtmlMeta = (text: string): TTMLMeta => {
   const bodyAt = text.indexOf("<body");
   const head = bodyAt > 0 ? text.slice(0, bodyAt) : text.slice(0, 8000);
-  const meta: { name?: string; artist?: string; ncmId?: string; qqId?: string } = {};
+  const meta: TTMLMeta = { ncmIds: [], qqIds: [] };
   for (const tag of head.matchAll(/<amll:meta\b[^>]*>/gi)) {
     const key = tag[0].match(/\bkey="([^"]*)"/)?.[1];
     const value = tag[0].match(/\bvalue="([^"]*)"/)?.[1];
     if (!key || !value) continue;
     if (key === "musicName" && !meta.name) meta.name = value;
     else if (key === "artists" && !meta.artist) meta.artist = value;
-    else if (key === "ncmMusicId" && !meta.ncmId) meta.ncmId = value;
-    else if (key === "qqMusicId" && !meta.qqId) meta.qqId = value;
+    else if (key === "ncmMusicId") meta.ncmIds.push(value);
+    else if (key === "qqMusicId") meta.qqIds.push(value);
   }
   return meta;
 };
@@ -242,8 +248,8 @@ const buildIndex = async (dirs: string[]): Promise<RepoIndex> => {
     let artist: string | undefined;
     if (format === "ttml") {
       const meta = extractTtmlMeta(text);
-      if (meta.ncmId) pushFile(index.byNcm, meta.ncmId, file);
-      if (meta.qqId) pushFile(index.byQq, meta.qqId, file);
+      for (const id of meta.ncmIds) pushFile(index.byNcm, id, file);
+      for (const id of meta.qqIds) pushFile(index.byQq, id, file);
       name = meta.name;
       artist = meta.artist;
     } else {

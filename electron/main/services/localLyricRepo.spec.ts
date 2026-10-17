@@ -98,6 +98,22 @@ describe("本地歌词库匹配", () => {
     );
   });
 
+  it("TTML 里多个 ncmMusicId 都会进索引", async () => {
+    const dir = await makeDir();
+    const ttml = [
+      "<ttml><head><metadata>",
+      '<amll:meta key="musicName" value="夜曲"/>',
+      '<amll:meta key="ncmMusicId" value="601"/>',
+      '<amll:meta key="ncmMusicId" value="602"/>',
+      "</metadata></head><body></body></ttml>",
+    ].join("");
+    await write(join(dir, "自校合集.ttml"), ttml);
+    mocks.dirs = [dir];
+    await expect(matchLocalLyric(track({ id: "602", title: "别的名字" }))).resolves.toContain(
+      "ncmMusicId",
+    );
+  });
+
   it("多个目录时靠前的目录优先", async () => {
     const first = await makeDir();
     const second = await makeDir();
